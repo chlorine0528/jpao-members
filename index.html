@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JPAO メンバーズ・キーワードクラウド</title>
+<style>
+  :root{
+    --bg1:#fff7ef; --bg2:#eaf6ff; --bg3:#fdeefb;
+    --ink:#2b2545; --ink-soft:#6a6386;
+    --panel:#ffffff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; }
+  body{
+    font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 600px at 12% -10%, var(--bg3), transparent 60%),
+      radial-gradient(1200px 700px at 100% 0%, var(--bg2), transparent 55%),
+      linear-gradient(160deg,var(--bg1),#f3f0ff 90%);
+    overflow:hidden;
+  }
+
+  /* ---- header ---- */
+  header{
+    position:fixed; top:0; left:0; right:0; z-index:20;
+    padding:18px 24px 10px;
+    pointer-events:none;
+  }
+  h1{
+    margin:0; font-size:clamp(20px,3.2vw,30px); font-weight:800; letter-spacing:.02em;
+    display:flex; align-items:center; gap:.4em;
+  }
+  h1 .dot{
+    width:.62em;height:.62em;border-radius:50%;
+    background:conic-gradient(from 0deg,#ff8fab,#ffd166,#8ce0c8,#7db8ff,#c9a7ff,#ff8fab);
+    box-shadow:0 4px 14px rgba(255,140,171,.5);
+    animation:spin 8s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  header p{
+    margin:6px 0 0; font-size:clamp(12px,1.6vw,14px); color:var(--ink-soft); font-weight:600;
+  }
+  header .hint{ opacity:.85; }
+
+  /* ---- floating field ---- */
+  #field{ position:fixed; inset:0; z-index:10; }
+  .bubble{
+    position:absolute; top:0; left:0;
+    display:flex; align-items:center; justify-content:center;
+    padding:.5em .95em; border-radius:999px;
+    font-weight:800; color:#3a2f57; white-space:nowrap;
+    cursor:pointer; user-select:none;
+    border:2px solid rgba(255,255,255,.9);
+    box-shadow:0 8px 20px rgba(90,70,140,.16), inset 0 -3px 8px rgba(255,255,255,.55);
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease, filter .18s ease;
+    will-change:transform;
+    backdrop-filter:saturate(1.1);
+  }
+  .bubble small{ font-weight:700; opacity:.6; margin-left:.4em; font-size:.72em; }
+  .bubble:hover{
+    filter:brightness(1.04);
+    box-shadow:0 14px 30px rgba(90,70,140,.28), inset 0 -3px 8px rgba(255,255,255,.6);
+    z-index:5;
+  }
+  .bubble.pop{ animation:pop .4s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes pop{ 0%{transform:scale(.2);opacity:0;} 100%{transform:scale(1);opacity:1;} }
+
+  /* ---- detail panel ---- */
+  #scrim{
+    position:fixed; inset:0; z-index:30; background:rgba(43,37,69,.32);
+    backdrop-filter:blur(3px); opacity:0; pointer-events:none; transition:opacity .3s ease;
+  }
+  #scrim.open{ opacity:1; pointer-events:auto; }
+  #panel{
+    position:fixed; z-index:40; top:0; right:0; height:100%;
+    width:min(460px,92vw); background:var(--panel);
+    box-shadow:-18px 0 50px rgba(60,40,110,.22);
+    transform:translateX(102%); transition:transform .38s cubic-bezier(.22,1,.36,1);
+    display:flex; flex-direction:column;
+  }
+  #panel.open{ transform:translateX(0); }
+  .panel-head{
+    padding:22px 24px 16px; position:relative;
+    background:linear-gradient(135deg,#fff0f6,#eef4ff);
+    border-bottom:1px solid #efe9ff;
+  }
+  .panel-head .kw{
+    font-size:22px; font-weight:900;
+    background:linear-gradient(90deg,#ff5d8f,#8a5cff); -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .panel-head .cnt{ display:block; margin-top:4px; font-size:13px; color:var(--ink-soft); font-weight:700; }
+  #close{
+    position:absolute; top:16px; right:16px; width:34px; height:34px; border-radius:50%;
+    border:none; background:#fff; color:#8a5cff; font-size:19px; cursor:pointer; font-weight:900;
+    box-shadow:0 4px 12px rgba(120,90,200,.2); line-height:1;
+  }
+  #close:hover{ background:#8a5cff; color:#fff; }
+  .panel-body{ padding:16px 20px 40px; overflow-y:auto; }
+
+  .card{
+    border:1px solid #efeaff; border-radius:18px; padding:16px 16px 14px; margin-bottom:14px;
+    background:#fff;
+    box-shadow:0 6px 16px rgba(90,70,140,.06);
+  }
+  .card .name{ font-size:17px; font-weight:900; display:flex; align-items:baseline; gap:.5em; flex-wrap:wrap; }
+  .card .area{ font-size:12px; font-weight:700; color:#ff5d8f; }
+  .row{ margin-top:9px; font-size:13.5px; line-height:1.6; }
+  .row .lbl{
+    display:inline-block; font-size:11px; font-weight:800; color:#7a6fa6;
+    background:#f3efff; border-radius:6px; padding:1px 7px; margin-right:6px; vertical-align:1px;
+  }
+  .row .txt{ color:#3d3560; }
+  .card a.link{ color:#6a3cff; text-decoration:none; font-weight:700; word-break:break-all; }
+  .card a.link:hover{ text-decoration:underline; }
+  .chips{ margin-top:11px; display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{
+    font-size:11px; font-weight:800; border-radius:999px; padding:3px 10px; cursor:pointer;
+    border:1.5px solid transparent; color:#4a3f70; background:#f4f0ff; transition:.15s;
+  }
+  .chip:hover{ background:#8a5cff; color:#fff; }
+  .chip.active{ background:#ffe1ec; color:#e0356f; border-color:#ff9dbf; }
+
+  /* ---- legend ---- */
+  .legend{
+    position:fixed; left:24px; bottom:18px; z-index:15;
+    font-size:12px; color:var(--ink-soft); font-weight:700;
+    background:rgba(255,255,255,.7); border:1px solid rgba(255,255,255,.9);
+    padding:8px 14px; border-radius:14px; backdrop-filter:blur(6px);
+    box-shadow:0 6px 18px rgba(90,70,140,.12);
+  }
+  .legend b{ color:#e0356f; }
+  @media (max-width:520px){ .legend{ left:12px; right:12px; bottom:12px; text-align:center; } }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="dot"></span>JPAO キーワードクラウド</h1>
+    <p class="hint">ふわふわ漂うキーワードをクリック → そのキーワードを持つJPAOメンバーの自己紹介が開きます</p>
+  </header>
+
+  <div id="field" aria-label="キーワードクラウド"></div>
+
+  <div class="legend">大きいキーワードほど<b>共通する人が多い</b></div>
+
+  <div id="scrim"></div>
+  <aside id="panel" aria-hidden="true">
+    <div class="panel-head">
+      <button id="close" aria-label="閉じる">×</button>
+      <span class="kw" id="panelKw">キーワード</span>
+      <span class="cnt" id="panelCnt"></span>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
+  </aside>
+
+<script>
+/* ============ DATA: 実在メンバー10名（テストデータ除外） ============ */
+const members = [
+  {
+    name:"小柳 充輝", area:"東京都大田区",
+    work:"株式会社ヘリテック代表。事業承継領域に特化したAI活用支援・AIプロダクト「サクシードAI」を展開。ホーストレッキングファーム三浦海岸の代表として乗馬・外乗・撮影・企業向け体験研修も運営。",
+    hobby:"写真撮影、カラオケ・音楽、お酒、ゲーム（MMO）。学生時代にハモネプ出場経験あり。",
+    paid:"ホーストレッキング／馬を使った企業研修・チームビルディング、プロフィール・イベント写真の撮影。",
+    free:"海外のAI活用事例やツール情報の共有、カメラの相談、カラオケ・飲み会のお誘い。",
+    expect:"AIオーナー同士で業務上のコラボレーションや相互紹介が自然に生まれる場に。事業・顧客・ノウハウを気軽に共有し合える関係性ができると嬉しい。",
+    hitokoto:"",
+    url:"https://heritech-ai.com/",
+    tags:["AI活用","事業承継","企業研修","乗馬","写真撮影","カラオケ","音楽","お酒","ゲーム"]
+  },
+  {
+    name:"黒田 悠介", area:"東京都中野区（出身は練馬区）",
+    work:"PAOコミュニティ運営者・クロス・オペレーショングループ株式会社CCO（Chief Community Officer）。",
+    hobby:"書籍の出版（数年に1冊ペース）、コミュニティ研究、二郎系ラーメンの食べ歩き。",
+    paid:"コミュニティ全般に関するナレッジ提供、講演、寄稿など。",
+    free:"PAOコミュニティの活用についての相談、おすすめの二郎系ラーメンの紹介。",
+    expect:"メンバーの皆さんによるコミュニケーション（交流）とコラボレーション（共創）が日々生まれる場にしたい。",
+    hitokoto:"長年コミュニティ運営をしてきた集大成をこのコミュニティで実現させて、AIオーナーズやAIコモンズの皆さんのビジネスを加速させる場にしていきます。よろしくお願いします！",
+    url:"https://linktr.ee/chlorine0528",
+    tags:["コミュニティ","執筆・出版","講演","二郎系ラーメン","コミュニティ研究"]
+  },
+  {
+    name:"坂田 晃一", area:"栃木県宇都宮",
+    work:"新聞販売店（既存顧客との信頼関係に基づく商売）、経営者・承継者へのNLPコーチング、AI（コアシャインAI）による人材育成。",
+    hobby:"サッカー、ファッション。",
+    paid:"NLPコーチング、コミュニケーション能力認定資格の付与、ブランドに関する講演・コンサルティング。",
+    free:"価値観の整理のお手伝い（無料コーチング）、短時間セミナー（1時間以内）。",
+    expect:"フラットで相乗効果が生まれる場になるといいですね。",
+    hitokoto:"一人一人が輝く素敵な場所になれるようお互い切磋琢磨していきましょう。",
+    url:"http://www.sakata-net.com",
+    tags:["AI活用","人材育成","コーチング","事業承継","サッカー","ファッション","コンサルティング"]
+  },
+  {
+    name:"屋代 浩司", area:"東京都調布市",
+    work:"ビジョンサービスの財務役員、飲食店経営、人材育成研修、AIエージェント講師、VisionAIの事業運用。",
+    hobby:"登山、ゴルフ、クルマ、晩酌。",
+    paid:"AI活用に関する動画研修コンテンツ（400本動画見放題）。",
+    free:"AI研修コンテンツの提供、飲み会の場の提供。",
+    expect:"VisionAIの販路拡大に関する成功事例の共有。AIオーナー同士のよこのつながりがもともと欲しかった。",
+    hitokoto:"OpsAIパートナー（株式会社ビジョンサービス）の屋代浩司です。皆さんと一緒にOpsAI事業を盛り上げていきたいと思います！",
+    url:"",
+    tags:["AI活用","AIエージェント","人材育成","飲食店経営","登山","ゴルフ","クルマ","お酒"]
+  },
+  {
+    name:"白石 貴義", area:"石川県",
+    work:"合同会社GSK CEO（AI SaaS事業、MEO運用代行）、株式会社DRONE金沢（農業ドローンによる散布代行事業）。",
+    hobby:"AI（ClaudeCodeなど）を事業に活用すること。",
+    paid:"ドローン空撮。",
+    free:"GoogleMap（クチコミ）のノウハウ、AI活用の相談。",
+    expect:"AIオーナーとして自社プロダクトを広げていく手法を知ったり、仲間を見つけたりしていきたい。",
+    hitokoto:"同じ立場の企業様とつながることで、いろんな事業展開ができると思います。winwinになれたら嬉しいです。",
+    url:"https://gskllc.co.jp/about/",
+    tags:["AI活用","AI SaaS","ドローン","MEO","農業"]
+  },
+  {
+    name:"春木 聡", area:"福岡県北九州市八幡西区折尾地区",
+    work:"合同会社OFFICE.H 代表社員、DELTA‣AI。",
+    hobby:"学生と連携したまちづくり（オリオンピック他）、noteから出版、料理、バンド（ベース）。",
+    paid:"まちづくりの出張講演、優秀な大学生の紹介、Instagramのフォロワーを増やす。",
+    free:"まちづくり・人間関係・営業の相談、料理、狩猟やクレー射撃の指導。",
+    expect:"リアルでの開催、営業の勉強会。",
+    hitokoto:"営業歴36年の私ですが、みなさんの営業手法を聞かせてください。どうぞよろしくお願いいたします。",
+    url:"https://orionpic.com",
+    tags:["AI活用","まちづくり","料理","音楽","執筆・出版","営業","狩猟"]
+  },
+  {
+    name:"服部 明梨", area:"札幌",
+    work:"新規事業立ち上げ・運営、SNS活用採用、OpsAI（採用接点の企業向け）。",
+    hobby:"美味しいものを食べること、マンガを読む、スポーツ観戦。",
+    paid:"本格的な採用支援。",
+    free:"採用に関する相談・アドバイス、麻雀。",
+    expect:"他の企業（エンドユーザー）の成功事例（業種・職種をどこに導入して価値を感じているのか？）。",
+    hitokoto:"",
+    url:"",
+    tags:["AI活用","新規事業","採用","グルメ","マンガ","スポーツ観戦","麻雀"]
+  },
+  {
+    name:"佐々木 貴博", area:"東京都千代田区",
+    work:"株式会社トレンドタウン代表（リンネAI、E-learningサービス）、オメガドライブ（生成AIマンガ、広告代理ほか）。",
+    hobby:"お酒の席、小銭稼ぎ、音楽（洋楽関連、ギター）、シルバーアクセサリー作り。",
+    paid:"生成AI特化のE-learningサービス、Webプロモーションの相談。",
+    free:"M&A関連の相談、お酒の席をご一緒する。",
+    expect:"よこのつながりで双方がメリットのある形が実現できたらいい。",
+    hitokoto:"皆様、宜しくお願い致します。",
+    url:"https://www.facebook.com/sasakitakahiro1211",
+    tags:["AI活用","生成AI","E-learning","マンガ","音楽","お酒","M&A","広告"]
+  },
+  {
+    name:"田邉 和歌子", area:"神奈川県川崎市",
+    work:"ガイアモーレ（総務システム・AI推進担当／ひとり情シス）。新人漫画家担当付き。",
+    hobby:"フィールサイクル、サッカー、読書、LOVOTオーナー。",
+    paid:"AI活用などのセミナー、イラスト制作、オンラインアシスタント「スーパー秘書」。",
+    free:"一緒にもくもく会、フィールサイクル、LOVOTトーク、クラフトビール巡り。",
+    expect:"ナレッジの共有、特に情シスとして技術的なことも話してみたい（エージェントどう使ってる？など）。",
+    hitokoto:"",
+    url:"https://note.com/gaiamore_co",
+    tags:["AI活用","情シス","マンガ","イラスト","サッカー","読書","LOVOT","お酒"]
+  },
+  {
+    name:"岡崎 麻由美", area:"東京都世田谷区",
+    work:"ガイアモーレ（AIスーパー秘書の企画推進等、スーパー秘書も兼務）。2人の娘の子育て中。",
+    hobby:"旅行（沖縄）、子育て。",
+    paid:"在宅ワーカーの活躍推進アドバイス（スーパー秘書など）。",
+    free:"在宅ワーカーの活躍推進アドバイス。",
+    expect:"AIツールの新規の見込み客発掘のナレッジを共有してもらえると嬉しい。",
+    hitokoto:"",
+    url:"https://note.com/gaiamore_co",
+    tags:["AI活用","スーパー秘書","旅行","子育て","在宅ワーク"]
+  }
+];
+
+/* ============ build keyword -> members index ============ */
+const kwMap = new Map();
+members.forEach((m,i)=>{
+  m.tags.forEach(t=>{
+    if(!kwMap.has(t)) kwMap.set(t,[]);
+    kwMap.get(t).push(i);
+  });
+});
+const keywords = [...kwMap.entries()]
+  .map(([kw,ids])=>({kw,ids,count:ids.length}))
+  .sort((a,b)=>b.count-a.count);
+
+/* candy palette */
+const palettes = [
+  ["#ffd6e7","#ff9ec4"],["#ffe6c7","#ffc178"],["#d8f5e6","#8fe0bd"],
+  ["#d7ecff","#8fc4ff"],["#ecdcff","#c3a0ff"],["#fff2c2","#ffdd6b"],
+  ["#ffdfd6","#ff9f8f"],["#d6f4ff","#7fdcf0"]
+];
+
+/* ============ floating field ============ */
+const field = document.getElementById("field");
+let W = field.clientWidth, H = field.clientHeight;
+const bubbles = [];
+
+function makeBubbles(){
+  field.innerHTML="";
+  bubbles.length=0;
+  keywords.forEach((k,idx)=>{
+    const el = document.createElement("div");
+    el.className="bubble pop";
+    const pal = palettes[idx % palettes.length];
+    el.style.background = `linear-gradient(145deg, ${pal[0]}, ${pal[1]})`;
+    const fs = 15 + (k.count-1)*4;                 // size by shared count
+    el.style.fontSize = fs + "px";
+    el.innerHTML = k.kw + (k.count>1 ? `<small>${k.count}</small>` : "");
+    el.addEventListener("click", ()=>openPanel(k.kw));
+    field.appendChild(el);
+
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const b = {
+      el, w, h,
+      x: Math.random()*(Math.max(W-w,10)),
+      y: 70 + Math.random()*(Math.max(H-h-140,10)),
+      vx:(Math.random()*2-1)*0.35,
+      vy:(Math.random()*2-1)*0.35,
+      paused:false, phase:Math.random()*Math.PI*2
+    };
+    if(Math.abs(b.vx)<0.12) b.vx = b.vx<0?-0.18:0.18;
+    if(Math.abs(b.vy)<0.12) b.vy = b.vy<0?-0.18:0.18;
+    el.addEventListener("mouseenter",()=>{ b.paused=true; el.style.transform+=" scale(1.14)"; });
+    el.addEventListener("mouseleave",()=>{ b.paused=false; });
+    bubbles.push(b);
+  });
+  setTimeout(()=>bubbles.forEach(b=>b.el.classList.remove("pop")),450);
+}
+
+function tick(t){
+  bubbles.forEach(b=>{
+    if(!b.paused){
+      b.x += b.vx;
+      b.y += b.vy + Math.sin(t/1400 + b.phase)*0.12; // gentle bob
+      if(b.x<=0){ b.x=0; b.vx=Math.abs(b.vx); }
+      if(b.x>=W-b.w){ b.x=W-b.w; b.vx=-Math.abs(b.vx); }
+      if(b.y<=58){ b.y=58; b.vy=Math.abs(b.vy); }
+      if(b.y>=H-b.h-70){ b.y=H-b.h-70; b.vy=-Math.abs(b.vy); }
+      b.el.style.transform = `translate(${b.x}px, ${b.y}px)`;
+    }
+  });
+  requestAnimationFrame(tick);
+}
+
+/* ============ detail panel ============ */
+const scrim=document.getElementById("scrim");
+const panel=document.getElementById("panel");
+const panelKw=document.getElementById("panelKw");
+const panelCnt=document.getElementById("panelCnt");
+const panelBody=document.getElementById("panelBody");
+let activeKw=null;
+
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function openPanel(kw){
+  activeKw=kw;
+  const ids = kwMap.get(kw) || [];
+  panelKw.textContent = "「"+kw+"」";
+  panelCnt.textContent = ids.length + "名のメンバーが当てはまります";
+  panelBody.innerHTML = ids.map(i=>{
+    const m=members[i];
+    const chips = m.tags.map(t=>`<span class="chip${t===kw?' active':''}" data-kw="${esc(t)}">${esc(t)}</span>`).join("");
+    const urlRow = m.url ? `<div class="row"><span class="lbl">URL</span><a class="link" href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.url)}</a></div>` : "";
+    const hitokoto = m.hitokoto ? `<div class="row"><span class="lbl">ひとこと</span><span class="txt">${esc(m.hitokoto)}</span></div>` : "";
+    return `<div class="card">
+      <div class="name">${esc(m.name)} <span class="area">${esc(m.area)}</span></div>
+      <div class="row"><span class="lbl">仕事・活動</span><span class="txt">${esc(m.work)}</span></div>
+      <div class="row"><span class="lbl">趣味・関心</span><span class="txt">${esc(m.hobby)}</span></div>
+      <div class="row"><span class="lbl">有償で</span><span class="txt">${esc(m.paid)}</span></div>
+      <div class="row"><span class="lbl">無償でも</span><span class="txt">${esc(m.free)}</span></div>
+      <div class="row"><span class="lbl">期待</span><span class="txt">${esc(m.expect)}</span></div>
+      ${hitokoto}
+      ${urlRow}
+      <div class="chips">${chips}</div>
+    </div>`;
+  }).join("");
+  // chip -> jump to another keyword
+  panelBody.querySelectorAll(".chip").forEach(c=>{
+    c.addEventListener("click",()=>openPanel(c.dataset.kw));
+  });
+  panelBody.scrollTop=0;
+  scrim.classList.add("open");
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden","false");
+}
+function closePanel(){
+  scrim.classList.remove("open");
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden","true");
+  activeKw=null;
+}
+document.getElementById("close").addEventListener("click",closePanel);
+scrim.addEventListener("click",closePanel);
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePanel(); });
+
+/* ============ resize + init ============ */
+function onResize(){
+  W=field.clientWidth; H=field.clientHeight;
+  bubbles.forEach(b=>{
+    b.x=Math.min(b.x, Math.max(W-b.w,0));
+    b.y=Math.min(b.y, Math.max(H-b.h-70,58));
+  });
+}
+window.addEventListener("resize",onResize);
+
+makeBubbles();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
