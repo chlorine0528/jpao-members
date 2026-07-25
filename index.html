@@ -26,46 +26,88 @@
 
 <style>
   :root{
-    --bg1:#fff7ef; --bg2:#eaf6ff; --bg3:#fdeefb;
-    --ink:#2b2545; --ink-soft:#6a6386;
+    --ink:#2b2545; --ink-soft:#615a7d;
     --panel:#ffffff;
+    /* 地の色は JPAO のデザインシステムに従う。tokens/colors.css は
+       --white を「ベース背景」と定め、「アクセントは1〜2色、
+       大きな塗りには使わない」と規定している。
+       パステルの多方向ラジアルを重ねる candy 背景も、
+       その代わりにクリーム色を敷くのも、どちらも既定色に逃げた形になる。
+       彩度は50個のバブルが担うので、地は指定どおり白にする */
+    --ground:#ffffff;
   }
   *{ box-sizing:border-box; }
-  html,body{ height:100%; margin:0; }
+  html{ height:100%; }
   body{
+    margin:0; min-height:100%;
     font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
     color:var(--ink);
-    background:
-      radial-gradient(1200px 600px at 12% -10%, var(--bg3), transparent 60%),
-      radial-gradient(1200px 700px at 100% 0%, var(--bg2), transparent 55%),
-      linear-gradient(160deg,var(--bg1),#f3f0ff 90%);
-    overflow:hidden;
+    background:var(--ground);
   }
+  /* 粒子は地の上、コンテンツの下。文字の上には絶対に乗せない */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+    opacity:.5; mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>\
+<filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/>\
+<feColorMatrix type='saturate' values='0'/></filter>\
+<rect width='160' height='160' filter='url(%23n)' opacity='0.055'/></svg>");
+  }
+
+  /* クラウド表示のときだけ画面を固定する。折り返し表示ではスクロールさせる */
+  body.mode-cloud{ height:100%; overflow:hidden; }
+  body.mode-flow{ overflow-y:auto; }
 
   /* ---- header ---- */
   header{
     position:fixed; top:0; left:0; right:0; z-index:20;
-    padding:18px 24px 10px;
+    padding:18px 24px 12px;
     pointer-events:none;
   }
+  /* 折り返し表示では固定をやめ、通常の流れに置く。
+     これでバブルが見出しやリード文に重なる余地がなくなる */
+  /* static では z-index が無効になり body::before の粒子に負けるので relative */
+  body.mode-flow header{ position:relative; }
   h1{
     margin:0; font-size:clamp(20px,3.2vw,30px); font-weight:800; letter-spacing:.02em;
     display:flex; align-items:center; gap:.4em;
+    word-break:keep-all; line-break:strict;
   }
   h1 .dot{
     width:.62em;height:.62em;border-radius:50%;
     background:conic-gradient(from 0deg,#ff8fab,#ffd166,#8ce0c8,#7db8ff,#c9a7ff,#ff8fab);
-    box-shadow:0 4px 14px rgba(255,140,171,.5);
+    /* 形をぼかして敷いた色付きの光をやめ、浅い一方向の影にする */
+    box-shadow:0 1px 2px rgba(120,90,140,.35);
     animation:spin 8s linear infinite;
+    flex-shrink:0;
   }
   @keyframes spin{ to{ transform:rotate(360deg); } }
   header p{
-    margin:6px 0 0; font-size:clamp(12px,1.6vw,14px); color:var(--ink-soft); font-weight:600;
+    margin:6px 0 0; font-size:clamp(12.5px,1.6vw,14px); color:var(--ink-soft); font-weight:600;
+    /* クラウド表示の文（32文字）が広い画面で1行に収まる幅。
+       狭めすぎると desktop でも折れる */
+    max-width:68ch;
+    /* 折れる場合も、最後の1文字だけが次行に落ちるのを防ぐ */
+    text-wrap:pretty;
+    word-break:keep-all; line-break:strict;
   }
-  header .hint{ opacity:.85; }
+
+  @media (prefers-reduced-motion: reduce){
+    h1 .dot{ animation:none; }
+  }
 
   /* ---- floating field ---- */
   #field{ position:fixed; inset:0; z-index:10; }
+  /* 折り返し表示: 重なりが原理的に起きないフロー配置にする */
+  body.mode-flow #field{
+    /* static だと z-index が効かず、body::before の粒子が
+       コンテンツの上に乗ってしまう。粒子は必ず文字の下に置く */
+    position:relative; inset:auto; z-index:1;
+    display:flex; flex-wrap:wrap; align-content:flex-start;
+    gap:10px; padding:14px 20px 48px;
+  }
+
   .bubble{
     position:absolute; top:0; left:0;
     display:flex; align-items:center; justify-content:center;
@@ -73,19 +115,32 @@
     font-weight:800; color:#3a2f57; white-space:nowrap;
     cursor:pointer; user-select:none;
     border:2px solid rgba(255,255,255,.9);
-    box-shadow:0 8px 20px rgba(90,70,140,.16), inset 0 -3px 8px rgba(255,255,255,.55);
-    transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease, filter .18s ease;
+    /* 全方位に広がるぼかしをやめ、浅い一方向の影 + 上端の内側ハイライト。
+       光源が上にある面として見せる */
+    box-shadow:0 2px 4px rgba(90,70,140,.20), inset 0 2px 3px rgba(255,255,255,.7);
+    transition:box-shadow .18s ease, filter .18s ease, border-color .18s ease;
     will-change:transform;
-    backdrop-filter:saturate(1.1);
   }
-  .bubble small{ font-weight:700; opacity:.6; margin-left:.4em; font-size:.72em; }
+  body.mode-flow .bubble{ position:relative; top:auto; left:auto; transform:none !important; }
+
+  /* 件数は共有人数そのもので、サイズ符号化の根拠になる情報。
+     opacity:.6 では最悪 2.64:1 しか出ず読めなかったので不透明度をやめ、
+     字の大きさと余白だけで主従をつける */
+  .bubble small{ font-weight:700; margin-left:.45em; font-size:.68em; }
+
   .bubble:hover{
-    filter:brightness(1.04);
-    box-shadow:0 14px 30px rgba(90,70,140,.28), inset 0 -3px 8px rgba(255,255,255,.6);
-    z-index:5;
+    /* ホバーで拡大させない。色調と縁だけ変える */
+    filter:brightness(1.05);
+    border-color:#fff;
+    box-shadow:0 3px 6px rgba(90,70,140,.26), inset 0 2px 3px rgba(255,255,255,.8);
+    /* 基準の z-index は共有人数（最大 10）なので、それより確実に上へ */
+    z-index:50;
   }
-  .bubble.pop{ animation:pop .4s cubic-bezier(.34,1.56,.64,1); }
-  @keyframes pop{ 0%{transform:scale(.2);opacity:0;} 100%{transform:scale(1);opacity:1;} }
+  .bubble:focus-visible{
+    outline:3px solid #4a3f7a;
+    outline-offset:3px;
+    z-index:60;
+  }
 
   /* ---- detail panel ---- */
   #scrim{
@@ -102,72 +157,153 @@
   }
   #panel.open{ transform:translateX(0); }
   .panel-head{
-    padding:22px 24px 16px; position:relative;
-    background:linear-gradient(135deg,#fff0f6,#eef4ff);
-    border-bottom:1px solid #efe9ff;
+    padding:22px 56px 16px 24px;   /* 右は閉じるボタンの逃げ */
+    position:relative;
+    /* 桃と水色を混ぜた candy グラデーションをやめ、
+       ブランドの soft tint（sky-soft）を1色だけ当てる */
+    background:#eef2f8;
+    border-bottom:1px solid rgba(43,37,69,.08);
   }
   .panel-head .kw{
-    font-size:22px; font-weight:900;
-    background:linear-gradient(90deg,#ff5d8f,#8a5cff); -webkit-background-clip:text; background-clip:text; color:transparent;
+    /* グラデーション文字をやめる。大きさと太さで十分に主役になる */
+    font-size:22px; font-weight:900; color:var(--ink);
+    word-break:keep-all; line-break:strict;
   }
   .panel-head .cnt{ display:block; margin-top:4px; font-size:13px; color:var(--ink-soft); font-weight:700; }
   #close{
-    position:absolute; top:16px; right:16px; width:34px; height:34px; border-radius:50%;
-    border:none; background:#fff; color:#8a5cff; font-size:19px; cursor:pointer; font-weight:900;
-    box-shadow:0 4px 12px rgba(120,90,200,.2); line-height:1;
+    position:absolute; top:16px; right:16px; width:36px; height:36px; border-radius:50%;
+    border:1px solid rgba(43,37,69,.10);
+    background:#fff; color:#4a3f7a;      /* 4.15:1 → 9.20:1 */
+    font-size:19px; cursor:pointer; font-weight:900;
+    box-shadow:0 1px 2px rgba(90,70,140,.18);
+    /* 記号を厳密に中央へ置く */
+    display:flex; align-items:center; justify-content:center; line-height:1; padding:0;
   }
-  #close:hover{ background:#8a5cff; color:#fff; }
+  #close:hover{ background:#4a3f7a; color:#fff; border-color:#4a3f7a; }
+  #close:focus-visible{ outline:3px solid #4a3f7a; outline-offset:2px; }
   .panel-body{ padding:16px 20px 40px; overflow-y:auto; }
 
   .card{
-    border:1px solid #efeaff; border-radius:18px; padding:16px 16px 14px; margin-bottom:14px;
+    border:1px solid rgba(43,37,69,.09); border-radius:18px; padding:16px 16px 14px; margin-bottom:14px;
     background:#fff;
-    box-shadow:0 6px 16px rgba(90,70,140,.06);
+    box-shadow:0 1px 3px rgba(90,70,140,.07);
   }
   .card .name{ font-size:17px; font-weight:900; display:flex; align-items:baseline; gap:.5em; flex-wrap:wrap; }
-  .card .area{ font-size:12px; font-weight:700; color:#ff5d8f; }
-  .row{ margin-top:9px; font-size:13.5px; line-height:1.6; }
+  /* 鮮やかなピンクは 2.91:1 しか出ていなかった。深いローズに寄せて階調で見せる */
+  .card .area{ font-size:12px; font-weight:700; color:#b02b52; }
+  .row{ margin-top:10px; font-size:13.5px; line-height:1.7; }
+  /* 項目名を淡い色のピルで包むのをやめる。書体の太さと色差だけで役割を示す */
   .row .lbl{
-    display:inline-block; font-size:11px; font-weight:800; color:#7a6fa6;
-    background:#f3efff; border-radius:6px; padding:1px 7px; margin-right:6px; vertical-align:1px;
+    font-size:11.5px; font-weight:800; color:#5a5375;   /* 4.00:1 → 7.17:1 */
+    letter-spacing:.02em; margin-right:.6em;
   }
   .row .txt{ color:#3d3560; }
-  .card a.link{ color:#6a3cff; text-decoration:none; font-weight:700; word-break:break-all; }
-  .card a.link:hover{ text-decoration:underline; }
-  .chips{ margin-top:11px; display:flex; flex-wrap:wrap; gap:6px; }
+  .card a.link{ color:#5330c4; text-decoration:underline; text-underline-offset:2px; font-weight:700; }
+  .card a.link:hover{ color:#3f2496; }
+  .card a.link:focus-visible{ outline:3px solid #4a3f7a; outline-offset:2px; border-radius:3px; }
+
+  /* こちらは実際に押せる操作子なので、チップの形のままで正しい */
+  .chips{ margin-top:12px; display:flex; flex-wrap:wrap; gap:6px; }
   .chip{
-    font-size:11px; font-weight:800; border-radius:999px; padding:3px 10px; cursor:pointer;
-    border:1.5px solid transparent; color:#4a3f70; background:#f4f0ff; transition:.15s;
+    font-size:11.5px; font-weight:800; border-radius:999px; padding:4px 11px; cursor:pointer;
+    border:1.5px solid transparent; color:#4a3f70; background:#f2eefb; transition:.15s;
   }
-  .chip:hover{ background:#8a5cff; color:#fff; }
-  .chip.active{ background:#ffe1ec; color:#e0356f; border-color:#ff9dbf; }
+  .chip:hover{ background:#4a3f7a; color:#fff; }
+  .chip:focus-visible{ outline:3px solid #4a3f7a; outline-offset:2px; }
+  .chip.active{ background:#ffe1ec; color:#a32a4d; border-color:#d98aa7; }  /* 3.51:1 → 5.75:1 */
 
   /* ---- legend ---- */
   .legend{
-    position:fixed; left:24px; bottom:18px; z-index:15;
-    font-size:12px; color:var(--ink-soft); font-weight:700;
-    background:rgba(255,255,255,.7); border:1px solid rgba(255,255,255,.9);
-    padding:8px 14px; border-radius:14px; backdrop-filter:blur(6px);
-    box-shadow:0 6px 18px rgba(90,70,140,.12);
+    /* 見出しと同じ 24px の版面に揃える。角に放り出さない */
+    position:fixed; left:24px; bottom:20px; z-index:15;
+    font-size:12.5px; color:#57506f; font-weight:700;
+    /* 背後がほぼ平坦な面なので、ぼかしても屈折するものがない。
+       中途半端なガラスはやめて素直な不透明の面にする */
+    background:#fdfbfa; border:1px solid rgba(43,37,69,.10);
+    padding:9px 15px; border-radius:14px;
+    box-shadow:0 1px 3px rgba(90,70,140,.14);
   }
-  .legend b{ color:#e0356f; }
-  @media (max-width:520px){ .legend{ left:12px; right:12px; bottom:12px; text-align:center; } }
+  .legend b{ color:#a32a4d; }   /* 4.15:1 → 6.80:1 */
+  .legend-note{ margin:0; }
+
+  /* ── 漂う速さ ── */
+  .speed{ display:flex; align-items:center; gap:10px; margin-top:10px; }
+  /* 折り返し表示には漂いが無いので、効かない操作子を出さない */
+  body:not(.mode-cloud) .speed{ display:none; }
+  .speed-label{ font-size:11.5px; font-weight:800; color:#5a5375; white-space:nowrap; }
+  .speed-name{ font-size:11.5px; font-weight:800; color:#a32a4d; min-width:4.6em; text-align:right; }
+
+  #speed{
+    -webkit-appearance:none; appearance:none;
+    width:112px; height:18px; margin:0; padding:0;
+    background:transparent; cursor:pointer;
+    --fill:50%;
+  }
+  /* トラック: 満たした側にブランドの6色を出す。
+     上の層が --fill から先を静かな面で覆うので、値の分だけ色が現れる */
+  #speed::-webkit-slider-runnable-track{
+    height:5px; border-radius:99px;
+    background-image:
+      linear-gradient(90deg, transparent 0 var(--fill), #e4e0ec var(--fill) 100%),
+      linear-gradient(90deg,#a89a00 0%,#8aa4ce 24%,#ca98ce 44%,#ca70ce 60%,#85c1ca 80%,#49819d 100%);
+  }
+  #speed::-moz-range-track{
+    height:5px; border-radius:99px; border:none;
+    background-image:
+      linear-gradient(90deg, transparent 0 var(--fill), #e4e0ec var(--fill) 100%),
+      linear-gradient(90deg,#a89a00 0%,#8aa4ce 24%,#ca98ce 44%,#ca70ce 60%,#85c1ca 80%,#49819d 100%);
+  }
+  /* つまみ: 既定の丸ではなく縦長のフェーダー型にする */
+  #speed::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:10px; height:18px; border-radius:4px;
+    background:#fff; border:1px solid rgba(43,37,69,.30);
+    box-shadow:0 1px 2px rgba(90,70,140,.25);
+    margin-top:-6.5px;            /* 5px のトラックの中心に合わせる (5-18)/2 */
+  }
+  #speed::-moz-range-thumb{
+    width:10px; height:18px; border-radius:4px;
+    background:#fff; border:1px solid rgba(43,37,69,.30);
+    box-shadow:0 1px 2px rgba(90,70,140,.25);
+  }
+  #speed:focus-visible{ outline:none; }
+  #speed:focus-visible::-webkit-slider-thumb{ outline:3px solid #4a3f7a; outline-offset:2px; }
+  #speed:focus-visible::-moz-range-thumb{ outline:3px solid #4a3f7a; outline-offset:2px; }
+  /* 折り返し表示では固定をやめる。押せるキーワードの上に居座らせない */
+  body.mode-flow .legend{
+    /* こちらも static にすると粒子の下に潜るので relative のまま上に置く */
+    position:relative; left:auto; bottom:auto;
+    margin:14px 20px 0; display:inline-block;
+  }
 </style>
 </head>
 <body>
   <header>
     <h1><span class="dot"></span>JPAO キーワードクラウド</h1>
-    <p class="hint">ふわふわ漂うキーワードをクリック → そのキーワードを持つJPAOメンバーの自己紹介が開きます</p>
+    <!-- JS が動かなくても正しい文にしておく。漂う旨は cloud 表示のときだけ足す -->
+    <p class="hint">キーワードを選ぶと、そのメンバーの自己紹介が開きます</p>
   </header>
 
-  <div id="field" aria-label="キーワードクラウド"></div>
+  <!-- cloud 表示では position:fixed なので DOM 順は効かない。
+       折り返し表示のときにリードの直下に来るよう、ここに置く -->
+  <div class="legend">
+    <p class="legend-note">大きいキーワードほど<b>共通する人が多い</b></p>
+    <!-- 漂う速さの調整。cloud 表示のときだけ意味を持つので、
+         flow 表示では CSS で隠す（押しても何も起きない操作子は置かない） -->
+    <div class="speed">
+      <label class="speed-label" for="speed">漂う速さ</label>
+      <input id="speed" type="range" min="0" max="4" step="1" value="2">
+      <output class="speed-name" id="speed-name" for="speed">ふつう</output>
+    </div>
+  </div>
 
-  <div class="legend">大きいキーワードほど<b>共通する人が多い</b></div>
+  <!-- aria-label だけでは role のない div は読み上げに無視されるため role を与える -->
+  <div id="field" role="group" aria-label="キーワード一覧"></div>
 
   <div id="scrim"></div>
-  <aside id="panel" aria-hidden="true">
+  <aside id="panel" role="dialog" aria-modal="true" aria-labelledby="panelKw" aria-hidden="true">
     <div class="panel-head">
-      <button id="close" aria-label="閉じる">×</button>
+      <button id="close" type="button" aria-label="閉じる">×</button>
       <span class="kw" id="panelKw">キーワード</span>
       <span class="cnt" id="panelCnt"></span>
     </div>
@@ -308,57 +444,355 @@ const palettes = [
   ["#ffdfd6","#ff9f8f"],["#d6f4ff","#7fdcf0"]
 ];
 
-/* ============ floating field ============ */
-const field = document.getElementById("field");
-let W = field.clientWidth, H = field.clientHeight;
-const bubbles = [];
+/* ============ keyword field ============ */
+/*
+  もとの実装は Math.random() だけで座標を決めており、衝突判定が一切なかった。
+  そのため下になったキーワードは恒久的にクリックできず、そのメンバーは
+  誰からも見つけられなかった。
 
-function makeBubbles(){
-  field.innerHTML="";
-  bubbles.length=0;
-  keywords.forEach((k,idx)=>{
+  ただし「押し分ける」だけでは狭い画面は救えない。390px 幅で使える面積は
+  約 273,000px^2、対して 50 個のバブルの合計面積は約 200,000px^2 あり、
+  占有率が 70% を超える。どう並べても重なるので幾何学的に不可能。
+
+  そこで2つの表示を持つ:
+    cloud … 広い画面。漂わせたまま、毎フレーム重なりを解消する
+    flow  … 狭い画面。漂うのをやめ、折り返して並べる（重なりが起きえない）
+*/
+const field = document.getElementById("field");
+const hintEl = document.querySelector("header .hint");
+const bubbles = [];
+let W = 0, H = 0, topBound = 0, bottomBound = 0;
+let mode = null;
+let rafId = null;
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function pickMode(){
+  return (window.innerWidth >= 900 && window.innerHeight >= 560) ? "cloud" : "flow";
+}
+
+/* ヘッダーとレジェンドの実測値で上下の境界を決める。
+   固定値 58 / 70 だったためリード文にバブルが重なっていた */
+function measureBounds(){
+  W = window.innerWidth;
+  H = window.innerHeight;
+  const header = document.querySelector("header");
+  const legend = document.querySelector(".legend");
+  topBound = (header ? header.getBoundingClientRect().height : 60) + 12;
+  bottomBound = H - ((legend ? legend.getBoundingClientRect().height : 40) + 32);
+  if (bottomBound - topBound < 120) bottomBound = topBound + 120;
+}
+
+/* 大きいものから順に、既に置いたものと重ならない場所を探す。
+   完全に空いた場所が見つからない場合は重なり面積が最小の候補を採る */
+function placeWithoutOverlap(){
+  const PAD = 8;
+  bubbles.forEach(b => { b.x = undefined; b.y = undefined; });
+  bubbles.forEach(b => {
+    const maxX = Math.max(W - b.w - GUTTER * 2, 1);
+    const maxY = Math.max((bottomBound - b.h) - topBound, 1);
+    let best = null, bestScore = Infinity;
+    for (let attempt = 0; attempt < 240; attempt++){
+      const x = GUTTER + Math.random() * maxX;
+      const y = topBound + Math.random() * maxY;
+      let score = 0;
+      for (const o of bubbles){
+        if (o === b || o.x === undefined) continue;
+        const ox = Math.min(x + b.w, o.x + o.w) - Math.max(x, o.x) + PAD;
+        const oy = Math.min(y + b.h, o.y + o.h) - Math.max(y, o.y) + PAD;
+        if (ox > 0 && oy > 0) score += ox * oy;
+      }
+      if (score === 0){ best = { x, y }; break; }
+      if (score < bestScore){ bestScore = score; best = { x, y }; }
+    }
+    b.x = best.x; b.y = best.y;
+  });
+}
+
+/*
+  重なっている対を、重なりが浅い軸に沿って押し分ける。
+  つかんでいる（ホバー中の）バブルは動かさず、相手だけを動かす。
+
+  重要: 位置を補正するだけでは速度が衝突前のまま相手を向き続けるので、
+  次のフレームでまた押し戻され、位置補正が速度を打ち消し続ける。
+  結果として接触したバブルはその場で失速し、接触の輪が広がるにつれ
+  全体の運動エネルギーが目減りしていく。実質、反発係数0の接触だった。
+  そこで位置の補正と一緒に、法線方向の速度も弾性衝突として交換する。
+  質量は面積に比例させるので、大きいバブルはほとんど弾かれない。
+*/
+const RESTITUTION = 1;   // 反発係数。1 で法線方向の運動エネルギーを保存する
+
+/* 漂う速さ。各バブルが持つ目標速度にこの倍率をかける。
+   0 は「止める」。動きが苦手な人にとっての実用的な選択肢でもある */
+const SPEED_STEPS = [
+  { name: "止める",   scale: 0    },
+  { name: "ゆっくり", scale: 0.6  },
+  { name: "ふつう",   scale: 1    },
+  { name: "いきいき", scale: 1.7  },
+  { name: "にぎやか", scale: 2.6  }
+];
+const SPEED_DEFAULT = 2;
+const SPEED_KEY = "jpao-cloud-speed";
+let speedScale = SPEED_STEPS[SPEED_DEFAULT].scale;
+
+function separate(){
+  const PAD = 5;
+  for (let i = 0; i < bubbles.length; i++){
+    for (let j = i + 1; j < bubbles.length; j++){
+      const a = bubbles[i], b = bubbles[j];
+      const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + PAD;
+      const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + PAD;
+      if (ox <= 0 || oy <= 0) continue;
+
+      const aFixed = a.paused, bFixed = b.paused;
+      if (aFixed && bFixed) continue;
+      const share = (aFixed || bFixed) ? 1 : 0.5;
+      const horizontal = ox < oy;
+
+      /* ── 1. 位置の補正（重なりを解くだけ。力ではなく拘束） ── */
+      if (horizontal){
+        const push = ox * 0.5 * share;
+        const dir = (a.x + a.w / 2) < (b.x + b.w / 2) ? -1 : 1;
+        if (!aFixed) a.x += dir * push;
+        if (!bFixed) b.x -= dir * push;
+      } else {
+        const push = oy * 0.5 * share;
+        const dir = (a.y + a.h / 2) < (b.y + b.h / 2) ? -1 : 1;
+        if (!aFixed) a.y += dir * push;
+        if (!bFixed) b.y -= dir * push;
+      }
+
+      /* ── 2. 速度の応答（1次元の弾性衝突） ── */
+      const key = horizontal ? "vx" : "vy";
+      const ca = horizontal ? a.x + a.w / 2 : a.y + a.h / 2;
+      const cb = horizontal ? b.x + b.w / 2 : b.y + b.h / 2;
+      const n  = ca < cb ? 1 : -1;      // a から b へ向かう法線
+      const ua = a[key] * n, ub = b[key] * n;
+      if (ua - ub <= 0) continue;       // すでに離れつつあるなら触らない
+
+      // 止めている側は無限質量として扱い、相手だけを弾き返す
+      if (aFixed){ b[key] = (ua + RESTITUTION * (ua - ub)) * n; continue; }
+      if (bFixed){ a[key] = (ub - RESTITUTION * (ua - ub)) * n; continue; }
+
+      const ma = a.m, mb = b.m, sum = ma + mb;
+      a[key] = ((ma * ua + mb * ub + mb * RESTITUTION * (ub - ua)) / sum) * n;
+      b[key] = ((ma * ua + mb * ub + ma * RESTITUTION * (ua - ub)) / sum) * n;
+    }
+  }
+}
+
+/*
+  弾性衝突にしても、位置補正の丸めや壁との同時接触で総エネルギーは
+  わずかに目減りする。50個で長時間まわすと無視できないので、
+  各バブルの速さを自分の目標値へごく弱く引き戻す。
+  1フレームあたり2%だけなので動きとしては感じられないが、
+  何分経っても漂いが止まらないし、暴走もしない。
+*/
+function thermostat(){
+  bubbles.forEach(b => {
+    if (b.paused) return;
+    const target = b.target * speedScale;
+    const s = Math.hypot(b.vx, b.vy);
+    if (target === 0){               // 「止める」。急に固まらないよう滑らかに減速
+      b.vx *= 0.94; b.vy *= 0.94;
+      return;
+    }
+    if (s < 1e-4){                   // 完全に停止した場合は向きを与え直す
+      const a = Math.random() * Math.PI * 2;
+      b.vx = Math.cos(a) * target;
+      b.vy = Math.sin(a) * target;
+      return;
+    }
+    const k = 1 + (target / s - 1) * 0.02;
+    b.vx *= k; b.vy *= k;
+  });
+}
+
+/* 全部が止まりきったか。「止める」を選んだあと rAF を回し続けないための判定 */
+function allSettled(){
+  for (let i = 0; i < bubbles.length; i++){
+    if (Math.hypot(bubbles[i].vx, bubbles[i].vy) > 0.004) return false;
+  }
+  return true;
+}
+
+/* 左右は 12px の余白を残す。2px だと文字が画面の縁に張り付いて見える */
+const GUTTER = 12;
+
+function clampAndPaint(bounce){
+  bubbles.forEach(b => {
+    if (b.x <= GUTTER){ b.x = GUTTER; if (bounce) b.vx = Math.abs(b.vx); }
+    if (b.x >= W - b.w - GUTTER){ b.x = W - b.w - GUTTER; if (bounce) b.vx = -Math.abs(b.vx); }
+    if (b.y <= topBound){ b.y = topBound; if (bounce) b.vy = Math.abs(b.vy); }
+    if (b.y >= bottomBound - b.h){ b.y = bottomBound - b.h; if (bounce) b.vy = -Math.abs(b.vy); }
+    b.el.style.transform = "translate(" + b.x + "px, " + b.y + "px)";
+  });
+}
+
+function buildBubbles(){
+  field.textContent = "";
+  bubbles.length = 0;
+
+  keywords.forEach((k, idx) => {
     const el = document.createElement("div");
-    el.className="bubble pop";
+    el.className = "bubble";
     const pal = palettes[idx % palettes.length];
-    el.style.background = `linear-gradient(145deg, ${pal[0]}, ${pal[1]})`;
-    const fs = 15 + (k.count-1)*4;                 // size by shared count
-    el.style.fontSize = fs + "px";
-    el.innerHTML = k.kw + (k.count>1 ? `<small>${k.count}</small>` : "");
-    el.addEventListener("click", ()=>openPanel(k.kw));
+    el.style.background = "linear-gradient(145deg, " + pal[0] + ", " + pal[1] + ")";
+    el.style.fontSize = (15 + (k.count - 1) * 4) + "px";   // 共有人数で大きさを決める
+
+    // innerHTML を使わず組み立てる
+    el.appendChild(document.createTextNode(k.kw));
+    if (k.count > 1){
+      const s = document.createElement("small");
+      s.textContent = k.count;
+      el.appendChild(s);
+    }
+
+    // 共有人数が多いものを上の層に置く。万一重なっても主役が隠れない
+    el.style.zIndex = String(1 + k.count);
+
+    // マウス以外でも開けるようにする。もとは div のままでキーボードから
+    // 1件も開けなかった
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", k.kw + "（" + k.count + "名）");
+
+    el.addEventListener("click", () => openPanel(k.kw));
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar"){
+        e.preventDefault();
+        openPanel(k.kw);
+      }
+    });
+
     field.appendChild(el);
 
-    const w = el.offsetWidth, h = el.offsetHeight;
     const b = {
-      el, w, h,
-      x: Math.random()*(Math.max(W-w,10)),
-      y: 70 + Math.random()*(Math.max(H-h-140,10)),
-      vx:(Math.random()*2-1)*0.35,
-      vy:(Math.random()*2-1)*0.35,
-      paused:false, phase:Math.random()*Math.PI*2
+      el, w: el.offsetWidth, h: el.offsetHeight,
+      x: 0, y: 0,
+      vx: (Math.random() * 2 - 1) * 0.35,
+      vy: (Math.random() * 2 - 1) * 0.35,
+      // 質量は面積に比例。大きいキーワードは小さいものに弾かれにくい
+      m: el.offsetWidth * el.offsetHeight,
+      /* 目標の速さ。全部同じだと機械的に見えるので1つずつ散らす。
+         この幅だと実際の移動量が 0.26px/frame 前後で落ち着く。
+         旧実装は開始直後が 0.22 で、10分後には 0.08 まで落ちていた */
+      target: 0.17 + Math.random() * 0.14,
+      paused: false, phase: Math.random() * Math.PI * 2
     };
-    if(Math.abs(b.vx)<0.12) b.vx = b.vx<0?-0.18:0.18;
-    if(Math.abs(b.vy)<0.12) b.vy = b.vy<0?-0.18:0.18;
-    el.addEventListener("mouseenter",()=>{ b.paused=true; el.style.transform+=" scale(1.14)"; });
-    el.addEventListener("mouseleave",()=>{ b.paused=false; });
+    if (Math.abs(b.vx) < 0.12) b.vx = b.vx < 0 ? -0.18 : 0.18;
+    if (Math.abs(b.vy) < 0.12) b.vy = b.vy < 0 ? -0.18 : 0.18;
+
+    // 拡大させない。読もうとしたキーワードが動くのは邪魔になる
+    const hold = () => { b.paused = true; };
+    const release = () => { b.paused = false; };
+    el.addEventListener("mouseenter", hold);
+    el.addEventListener("mouseleave", release);
+    el.addEventListener("focus", hold);
+    el.addEventListener("blur", release);
+
     bubbles.push(b);
   });
-  setTimeout(()=>bubbles.forEach(b=>b.el.classList.remove("pop")),450);
 }
 
 function tick(t){
-  bubbles.forEach(b=>{
-    if(!b.paused){
-      b.x += b.vx;
-      b.y += b.vy + Math.sin(t/1400 + b.phase)*0.12; // gentle bob
-      if(b.x<=0){ b.x=0; b.vx=Math.abs(b.vx); }
-      if(b.x>=W-b.w){ b.x=W-b.w; b.vx=-Math.abs(b.vx); }
-      if(b.y<=58){ b.y=58; b.vy=Math.abs(b.vy); }
-      if(b.y>=H-b.h-70){ b.y=H-b.h-70; b.vy=-Math.abs(b.vy); }
-      b.el.style.transform = `translate(${b.x}px, ${b.y}px)`;
-    }
+  if (mode !== "cloud"){ rafId = null; return; }
+  // 「止める」で完全に静止したらループ自体を降りる。上げ直したら applySpeed が再開する
+  if (speedScale === 0 && allSettled()){ rafId = null; return; }
+  bubbles.forEach(b => {
+    if (b.paused) return;
+    b.x += b.vx;
+    // ゆるやかな上下。速度とは独立に位置へ足すので、倍率をかけないと
+    // 「止める」でも揺れ続けてしまう
+    b.y += b.vy + Math.sin(t / 1400 + b.phase) * 0.12 * speedScale;
   });
-  requestAnimationFrame(tick);
+  separate();
+  clampAndPaint(true);
+  thermostat();
+  rafId = requestAnimationFrame(tick);
 }
+
+function layout(){
+  const next = pickMode();
+  const changed = next !== mode;
+  mode = next;
+  document.body.classList.toggle("mode-cloud", mode === "cloud");
+  document.body.classList.toggle("mode-flow",  mode === "flow");
+
+  if (hintEl){
+    hintEl.textContent = (mode === "cloud" && speedScale > 0)
+      ? "ふわふわ漂うキーワードを選ぶと、そのメンバーの自己紹介が開きます"
+      : "キーワードを選ぶと、そのメンバーの自己紹介が開きます";
+  }
+
+  if (changed || bubbles.length === 0) buildBubbles();
+  // 表示切替でパディングが変わるので、寸法は必ず組み立て後に測る
+  bubbles.forEach(b => {
+    b.w = b.el.offsetWidth; b.h = b.el.offsetHeight;
+    b.m = b.w * b.h;   // 寸法が変われば質量も更新する
+  });
+
+  if (rafId !== null){ cancelAnimationFrame(rafId); rafId = null; }
+
+  if (mode === "flow"){
+    // 折り返し配置は CSS が並べる。transform は使わない
+    return;
+  }
+
+  measureBounds();
+  placeWithoutOverlap();
+  for (let i = 0; i < 60; i++) separate();   // 置いた直後に一度ほどく
+  clampAndPaint(false);
+
+  // 倍率とトラックの塗りを同期し、必要ならループを再開する
+  applySpeed(speedIndex, false);
+}
+
+/* ============ 漂う速さ ============ */
+const speedInput = document.getElementById("speed");
+const speedName  = document.getElementById("speed-name");
+let speedIndex = SPEED_DEFAULT;
+
+function applySpeed(i, save){
+  speedIndex = Math.min(Math.max(i | 0, 0), SPEED_STEPS.length - 1);
+  const step = SPEED_STEPS[speedIndex];
+  speedScale = step.scale;
+
+  if (speedInput){
+    speedInput.value = String(speedIndex);
+    // 満たした割合。トラックのブランド色がここまで現れる
+    speedInput.style.setProperty("--fill",
+      (speedIndex / (SPEED_STEPS.length - 1)) * 100 + "%");
+    // 読み上げに「2」ではなく「ふつう」と伝える
+    speedInput.setAttribute("aria-valuetext", step.name);
+  }
+  if (speedName) speedName.textContent = step.name;
+
+  if (hintEl){
+    hintEl.textContent = (mode === "cloud" && speedScale > 0)
+      ? "ふわふわ漂うキーワードを選ぶと、そのメンバーの自己紹介が開きます"
+      : "キーワードを選ぶと、そのメンバーの自己紹介が開きます";
+  }
+
+  if (save){
+    try { localStorage.setItem(SPEED_KEY, String(speedIndex)); } catch (e) {}
+  }
+  // 止めていたループを起こす
+  if (mode === "cloud" && rafId === null) rafId = requestAnimationFrame(tick);
+}
+
+if (speedInput){
+  speedInput.addEventListener("input", () => applySpeed(+speedInput.value, true));
+}
+
+/* 前回の選択を復元。無ければ、動きを控える設定の人は「止める」から始める */
+(function initSpeed(){
+  let saved = null;
+  try { saved = localStorage.getItem(SPEED_KEY); } catch (e) {}
+  if (saved !== null && saved !== "" && !isNaN(+saved)) speedIndex = +saved;
+  else speedIndex = reduceMotion.matches ? 0 : SPEED_DEFAULT;
+  speedScale = SPEED_STEPS[Math.min(Math.max(speedIndex,0),SPEED_STEPS.length-1)].scale;
+})();
 
 /* ============ detail panel ============ */
 const scrim=document.getElementById("scrim");
@@ -366,9 +800,25 @@ const panel=document.getElementById("panel");
 const panelKw=document.getElementById("panelKw");
 const panelCnt=document.getElementById("panelCnt");
 const panelBody=document.getElementById("panelBody");
+const closeBtn=document.getElementById("close");
 let activeKw=null;
+let lastFocus=null;
 
-function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+// 初期状態は閉じている。Tab で画面外のパネルに入れないようにしておく
+panel.setAttribute("inert","");
+
+/* 引用符も落とす。data-kw="..." や href="..." に値を差し込むので、
+   " が素通りすると属性が壊れる */
+function esc(s){
+  return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+                .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+/* 生のURLをそのまま並べると読みにくい。ホスト名だけ見せる */
+function urlLabel(u){
+  try { return new URL(u).hostname.replace(/^www\./,""); }
+  catch (e) { return u; }
+}
 
 function openPanel(kw){
   activeKw=kw;
@@ -377,8 +827,9 @@ function openPanel(kw){
   panelCnt.textContent = ids.length + "名のメンバーが当てはまります";
   panelBody.innerHTML = ids.map(i=>{
     const m=members[i];
-    const chips = m.tags.map(t=>`<span class="chip${t===kw?' active':''}" data-kw="${esc(t)}">${esc(t)}</span>`).join("");
-    const urlRow = m.url ? `<div class="row"><span class="lbl">URL</span><a class="link" href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.url)}</a></div>` : "";
+    const chips = m.tags.map(t=>`<span class="chip${t===kw?' active':''}" role="button" tabindex="0"`
+      + ` aria-label="${esc(t)}のメンバーを見る" data-kw="${esc(t)}">${esc(t)}</span>`).join("");
+    const urlRow = m.url ? `<div class="row"><span class="lbl">リンク</span><a class="link" href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${esc(urlLabel(m.url))}</a></div>` : "";
     const hitokoto = m.hitokoto ? `<div class="row"><span class="lbl">ひとこと</span><span class="txt">${esc(m.hitokoto)}</span></div>` : "";
     return `<div class="card">
       <div class="name">${esc(m.name)} <span class="area">${esc(m.area)}</span></div>
@@ -392,37 +843,64 @@ function openPanel(kw){
       <div class="chips">${chips}</div>
     </div>`;
   }).join("");
-  // chip -> jump to another keyword
+  // chip -> 別のキーワードへ。マウスとキーボードの両方で動かす
   panelBody.querySelectorAll(".chip").forEach(c=>{
-    c.addEventListener("click",()=>openPanel(c.dataset.kw));
+    const jump = ()=>openPanel(c.dataset.kw);
+    c.addEventListener("click", jump);
+    c.addEventListener("keydown", e=>{
+      if(e.key==="Enter"||e.key===" "||e.key==="Spacebar"){ e.preventDefault(); jump(); }
+    });
   });
   panelBody.scrollTop=0;
+
+  const firstOpen = !panel.classList.contains("open");
   scrim.classList.add("open");
   panel.classList.add("open");
   panel.setAttribute("aria-hidden","false");
+  panel.removeAttribute("inert");
+
+  // 開いた元の場所を覚えておき、閉じたら必ずそこへ戻す
+  if(firstOpen){
+    lastFocus = document.activeElement;
+    closeBtn.focus();
+  }
 }
 function closePanel(){
+  if(!panel.classList.contains("open")) return;
   scrim.classList.remove("open");
   panel.classList.remove("open");
   panel.setAttribute("aria-hidden","true");
+  // 画面外にあるだけでは Tab で入れてしまうので、フォーカスごと閉じる
+  panel.setAttribute("inert","");
   activeKw=null;
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  lastFocus=null;
 }
-document.getElementById("close").addEventListener("click",closePanel);
+closeBtn.addEventListener("click",closePanel);
 scrim.addEventListener("click",closePanel);
 document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePanel(); });
 
 /* ============ resize + init ============ */
+/*
+  もとの onResize は座標を新しい枠に押し込めるだけで、並べ直しをしなかった。
+  そのため 390px で開いてから広げても、クラウドは狭いまま左に固まっていた。
+  ここでは表示の切替も含めて丸ごと組み直す。
+*/
+let resizeTimer = null;
 function onResize(){
-  W=field.clientWidth; H=field.clientHeight;
-  bubbles.forEach(b=>{
-    b.x=Math.min(b.x, Math.max(W-b.w,0));
-    b.y=Math.min(b.y, Math.max(H-b.h-70,58));
-  });
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(layout, 160);
 }
-window.addEventListener("resize",onResize);
+window.addEventListener("resize", onResize);
+window.addEventListener("orientationchange", onResize);
 
-makeBubbles();
-requestAnimationFrame(tick);
+// 動きを控える設定に切り替えられたら、その場で従う
+if (reduceMotion.addEventListener) reduceMotion.addEventListener("change", layout);
+
+/* 書体の読み込みで幅が変わるとバブルの寸法がずれるので、確定後に測り直す */
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+
+layout();
 </script>
 </body>
 </html>
