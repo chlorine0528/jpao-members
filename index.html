@@ -93,6 +93,21 @@
     word-break:keep-all; line-break:strict;
   }
 
+  header .invite{
+    margin:5px 0 0; font-size:clamp(12px,1.5vw,13.5px); color:var(--ink-soft); font-weight:600;
+    max-width:68ch; text-wrap:pretty; word-break:keep-all; line-break:strict;
+  }
+  /* header は pointer-events:none（下のバブルを押せるようにするため）。
+     このままだとリンクに見えて押せないので、リンクだけ操作を受け付ける */
+  header .invite a{ pointer-events:auto; }
+  .form-link{
+    color:#5330c4;                /* 白地で 8.12:1 */
+    font-weight:800;
+    text-decoration:underline; text-underline-offset:2px;
+  }
+  .form-link:hover{ color:#3f2496; }
+  .form-link:focus-visible{ outline:3px solid #4a3f7a; outline-offset:2px; border-radius:3px; }
+
   @media (prefers-reduced-motion: reduce){
     h1 .dot{ animation:none; }
   }
@@ -282,6 +297,9 @@
     <h1><span class="dot"></span>JPAO キーワードクラウド</h1>
     <!-- JS が動かなくても正しい文にしておく。漂う旨は cloud 表示のときだけ足す -->
     <p class="hint">キーワードを選ぶと、そのメンバーの自己紹介が開きます</p>
+    <p class="invite"><a class="form-link"
+      href="https://docs.google.com/forms/d/e/1FAIpQLSetgtNebbFKVCDrtjOdL17lA9d-c5cY3dFf6j5Wyo6XXlHuhA/viewform"
+      target="_blank" rel="noopener noreferrer">自己紹介フォーム</a>の回答からキーワードを抽出しています。未回答の方はぜひこちらから！</p>
   </header>
 
   <!-- cloud 表示では position:fixed なので DOM 順は効かない。
