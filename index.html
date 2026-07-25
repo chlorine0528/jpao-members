@@ -934,23 +934,36 @@ layout();
   だから散文から自動抽出はしない。列が空の人は雲に出さず、
   コンソールに名前を出して知らせる。
 */
-const SHEET_ID  = "1dPR-8eSQmRAnFvSJ9siNmEUs9ZmVz_e6VpqktmCxDA8";
-const SHEET_GID = "0";
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
-                  "/gviz/tq?tqx=out:json&headers=0&gid=" + SHEET_GID;
+const SHEET_ID = "1dPR-8eSQmRAnFvSJ9siNmEUs9ZmVz_e6VpqktmCxDA8";
+/* 主データはフォーム回答タブ。ここにキーワード列があり、
+   新しい回答は自動で行が増えるので転記待ちが発生しない */
+const GID_MAIN  = "571669687";
+/* 「ひとこと」はこちらの一覧タブにしか無いので、名前で突き合わせて補う */
+const GID_NOTES = "0";
+const sheetUrl = gid => "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+                        "/gviz/tq?tqx=out:json&headers=0&gid=" + gid;
 
-/* 見出しの文字列 → メンバーのキー。列の順番が変わっても名前で拾う */
+/*
+  見出しの文字列 → メンバーのキー。列の順番が変わっても名前で拾う。
+  2つのタブで見出しの書き方が違うので、両方を別名として持つ。
+
+  【重要】ここに挙げた見出しだけを取り込む。
+  回答タブには「メールアドレス」列があるが、対応表に無いので読み捨てられ、
+  画面には一切出ない。公開ページなので、この列を足さないこと。
+*/
 const FIELD_MAP = [
-  ["お名前", "name"],
-  ["お住まいの地域", "area"],
-  ["お仕事・ご活動", "work"],
-  ["趣味・関心事", "hobby"],
-  ["あなたのことがわかるURL", "url"],
-  ["「有償」なら提供できること", "paid"],
-  ["「無償」でも提供できること", "free"],
-  ["コミュニティに期待すること", "expect"],
-  ["ひとこと", "hitokoto"],
-  ["キーワード", "tagsRaw"]
+  [["お名前を教えてください", "お名前"], "name"],
+  [["お住まいの地域を教えてください", "お住まいの地域"], "area"],
+  [["お仕事・ご活動を教えてください", "お仕事・ご活動"], "work"],
+  [["趣味・関心事を教えてください", "趣味・関心事"], "hobby"],
+  [["あなたのことがわかるURLを教えてください", "あなたのことがわかるURL"], "url"],
+  [["コミュニティメンバーに「有償」なら提供できることを教えてください",
+    "「有償」なら提供できること"], "paid"],
+  [["コミュニティメンバーに「無償」でも提供できることを教えてください",
+    "「無償」でも提供できること"], "free"],
+  [["コミュニティに期待することを教えてください", "コミュニティに期待すること"], "expect"],
+  [["ひとこと"], "hitokoto"],
+  [["キーワード"], "tagsRaw"]
 ];
 
 function tidy(s){
@@ -967,21 +980,24 @@ function normalizeUrl(u){
   return m ? m[0] : "";
 }
 
-function parseSheet(text){
+function parseSheet(text, requireTags){
   const m = text.match(/setResponse\(([\s\S]*)\)/);
   if (!m) throw new Error("応答の形が想定と違う");
   const rows = JSON.parse(m[1]).table.rows
     .map(r => (r.c || []).map(c => (c && c.v != null) ? c.v : ""));
 
-  // 見出しは1行目とは限らない（上にタイトル行がある）。「お名前」で探す
-  const hi = rows.findIndex(r => r.some(v => tidy(v) === "お名前"));
+  // 見出しは1行目とは限らない（一覧タブは上にタイトル行がある）。
+  // 見出しの書き方も2種類あるので前方一致で探す
+  const hi = rows.findIndex(r => r.some(v => tidy(v).indexOf("お名前") === 0));
   if (hi < 0) throw new Error("見出し行が見つからない");
   const header = rows[hi].map(tidy);
 
   const col = {};
-  FIELD_MAP.forEach(([label, key]) => {
-    const i = header.indexOf(label);
-    if (i >= 0) col[key] = i;
+  FIELD_MAP.forEach(([labels, key]) => {
+    for (let n = 0; n < labels.length; n++){
+      const i = header.indexOf(labels[n]);
+      if (i >= 0){ col[key] = i; break; }
+    }
   });
   if (col.name == null) throw new Error("「お名前」列が無い");
 
@@ -994,7 +1010,7 @@ function parseSheet(text){
 
     // 空白では割らない。「AI SaaS」のような語が壊れる
     const tags = get("tagsRaw").split(/[、，,／\/]+/).map(s => s.trim()).filter(Boolean);
-    if (!tags.length){ noTags.push(name); return; }
+    if (requireTags && !tags.length){ noTags.push(name); return; }
 
     list.push({
       name: name,          area:  get("area"),
@@ -1025,10 +1041,29 @@ function applyMembers(fresh){
 }
 
 function loadFromSheet(){
-  fetch(SHEET_URL, { cache: "no-store" })
-    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
-    .then(text => {
-      const res = parseSheet(text);
+  Promise.all([
+    fetch(sheetUrl(GID_MAIN), { cache: "no-store" })
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); }),
+    // 「ひとこと」の補完。取れなくても本体の表示は続ける
+    fetch(sheetUrl(GID_NOTES), { cache: "no-store" })
+      .then(r => r.ok ? r.text() : null).catch(() => null)
+  ])
+    .then(pair => {
+      const text = pair[0], notesText = pair[1];
+      const res = parseSheet(text, true);
+
+      // 一覧タブから「ひとこと」だけ名前で突き合わせて足す
+      if (notesText){
+        try {
+          const notes = parseSheet(notesText, false);
+          const byName = new Map();
+          notes.members.forEach(p => { if (p.hitokoto) byName.set(p.name, p.hitokoto); });
+          res.members.forEach(p => {
+            if (!p.hitokoto && byName.has(p.name)) p.hitokoto = byName.get(p.name);
+          });
+        } catch (e) { /* 補完は失敗しても無視 */ }
+      }
+
       if (res.noTags.length){
         console.warn("[JPAO] キーワード列が空のため雲に出していません: "
           + res.noTags.join("、"));
