@@ -311,8 +311,15 @@
   </aside>
 
 <script>
-/* ============ DATA: 実在メンバー10名（テストデータ除外） ============ */
-const members = [
+/*
+  ============ DATA ============
+  正はスプレッドシートの「JPAOメンバー自己紹介一覧」タブ。
+  ただしページを開いた瞬間から中身が見えている必要があるので、
+  下の10名分は土台として埋め込んだままにする。
+  読み込みに成功したらシートの内容で置き換える。失敗してもここが残るので
+  画面が空になることはない。
+*/
+const FALLBACK_MEMBERS = [
   {
     name:"小柳 充輝", area:"東京都大田区",
     work:"株式会社ヘリテック代表。事業承継領域に特化したAI活用支援・AIプロダクト「サクシードAI」を展開。ホーストレッキングファーム三浦海岸の代表として乗馬・外乗・撮影・企業向け体験研修も運営。",
@@ -425,17 +432,26 @@ const members = [
   }
 ];
 
+let members = FALLBACK_MEMBERS;
+
 /* ============ build keyword -> members index ============ */
-const kwMap = new Map();
-members.forEach((m,i)=>{
-  m.tags.forEach(t=>{
-    if(!kwMap.has(t)) kwMap.set(t,[]);
-    kwMap.get(t).push(i);
+/* シートを読み込んだあとに作り直すので関数にしておく */
+let kwMap = new Map();
+let keywords = [];
+
+function buildIndex(){
+  kwMap = new Map();
+  members.forEach((m,i)=>{
+    m.tags.forEach(t=>{
+      if(!kwMap.has(t)) kwMap.set(t,[]);
+      kwMap.get(t).push(i);
+    });
   });
-});
-const keywords = [...kwMap.entries()]
-  .map(([kw,ids])=>({kw,ids,count:ids.length}))
-  .sort((a,b)=>b.count-a.count);
+  keywords = [...kwMap.entries()]
+    .map(([kw,ids])=>({kw,ids,count:ids.length}))
+    .sort((a,b)=>b.count-a.count);
+}
+buildIndex();
 
 /* candy palette */
 const palettes = [
@@ -901,6 +917,138 @@ if (reduceMotion.addEventListener) reduceMotion.addEventListener("change", layou
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
 
 layout();
+
+/* ============ スプレッドシートから読み込む ============ */
+/*
+  正は「JPAOメンバー自己紹介一覧」タブ（gid=0）。
+  Google の gviz エンドポイントは要求元オリジンに対して
+  access-control-allow-origin を返すので、Apps Script を挟まずに
+  ページから直接読める。cache-control も no-store なので常に最新。
+
+  シートに人を追加したら、このページは次に開かれた時点で反映される。
+  デプロイ作業は要らない。
+
+  【前提】シートに「キーワード」列が必要。
+  クラウドの大小は同じキーワードが何人に付いているかで決まるので、
+  表記が揺れると「音楽」と「音楽鑑賞」が別物になって階層が壊れる。
+  だから散文から自動抽出はしない。列が空の人は雲に出さず、
+  コンソールに名前を出して知らせる。
+*/
+const SHEET_ID  = "1dPR-8eSQmRAnFvSJ9siNmEUs9ZmVz_e6VpqktmCxDA8";
+const SHEET_GID = "0";
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+                  "/gviz/tq?tqx=out:json&headers=0&gid=" + SHEET_GID;
+
+/* 見出しの文字列 → メンバーのキー。列の順番が変わっても名前で拾う */
+const FIELD_MAP = [
+  ["お名前", "name"],
+  ["お住まいの地域", "area"],
+  ["お仕事・ご活動", "work"],
+  ["趣味・関心事", "hobby"],
+  ["あなたのことがわかるURL", "url"],
+  ["「有償」なら提供できること", "paid"],
+  ["「無償」でも提供できること", "free"],
+  ["コミュニティに期待すること", "expect"],
+  ["ひとこと", "hitokoto"],
+  ["キーワード", "tagsRaw"]
+];
+
+function tidy(s){
+  if (typeof s !== "string") return "";
+  // 改行を消した名残の行頭「・」だけ落とす。
+  // 語中の「・」は「執筆・出版」のような複合語なので触らない
+  return s.replace(/\s+/g, " ").replace(/^[・･]\s*/, "").trim();
+}
+
+function normalizeUrl(u){
+  const s = tidy(u);
+  if (!s || /^(なし|無し|特になし|ー|-|—)$/.test(s)) return "";
+  const m = s.match(/https?:\/\/[^\s]+/);   // 複数書かれていたら先頭だけ使う
+  return m ? m[0] : "";
+}
+
+function parseSheet(text){
+  const m = text.match(/setResponse\(([\s\S]*)\)/);
+  if (!m) throw new Error("応答の形が想定と違う");
+  const rows = JSON.parse(m[1]).table.rows
+    .map(r => (r.c || []).map(c => (c && c.v != null) ? c.v : ""));
+
+  // 見出しは1行目とは限らない（上にタイトル行がある）。「お名前」で探す
+  const hi = rows.findIndex(r => r.some(v => tidy(v) === "お名前"));
+  if (hi < 0) throw new Error("見出し行が見つからない");
+  const header = rows[hi].map(tidy);
+
+  const col = {};
+  FIELD_MAP.forEach(([label, key]) => {
+    const i = header.indexOf(label);
+    if (i >= 0) col[key] = i;
+  });
+  if (col.name == null) throw new Error("「お名前」列が無い");
+
+  const list = [], noTags = [];
+  rows.slice(hi + 1).forEach(r => {
+    const get = k => (col[k] == null) ? "" : tidy(r[col[k]]);
+    const name = get("name");
+    if (!name) return;
+    if (/test\s*data|テストデータ/i.test(name)) return;   // テスト行は載せない
+
+    // 空白では割らない。「AI SaaS」のような語が壊れる
+    const tags = get("tagsRaw").split(/[、，,／\/]+/).map(s => s.trim()).filter(Boolean);
+    if (!tags.length){ noTags.push(name); return; }
+
+    list.push({
+      name: name,          area:  get("area"),
+      work: get("work"),   hobby: get("hobby"),
+      paid: get("paid"),   free:  get("free"),
+      expect: get("expect"), hitokoto: get("hitokoto"),
+      url: normalizeUrl(get("url")),
+      tags: tags
+    });
+  });
+
+  // 同じ名前が複数行あれば後の行を採用して1人にまとめる
+  const byName = new Map();
+  list.forEach(p => byName.set(p.name, p));
+  return { members: [...byName.values()], noTags: noTags };
+}
+
+function applyMembers(fresh){
+  const openKw = activeKw;
+  members = fresh;
+  buildIndex();
+  bubbles.length = 0;        // 作り直させる
+  layout();
+  // 開いていたパネルは、そのキーワードが残っていれば開き直す
+  if (openKw){
+    if (kwMap.has(openKw)) openPanel(openKw); else closePanel();
+  }
+}
+
+function loadFromSheet(){
+  fetch(SHEET_URL, { cache: "no-store" })
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+    .then(text => {
+      const res = parseSheet(text);
+      if (res.noTags.length){
+        console.warn("[JPAO] キーワード列が空のため雲に出していません: "
+          + res.noTags.join("、"));
+      }
+      if (!res.members.length){
+        console.warn("[JPAO] シートから取り込める行が0件でした。"
+          + "「キーワード」列が未設定の可能性があります。埋め込みの"
+          + FALLBACK_MEMBERS.length + "名で表示しています。");
+        return;
+      }
+      applyMembers(res.members);
+      console.info("[JPAO] シートから " + res.members.length + "名を読み込みました。");
+    })
+    .catch(e => {
+      // 読めなくても埋め込み分で動き続ける。ここで画面を壊さない
+      console.warn("[JPAO] シートを読めなかったので埋め込みデータで表示します: " + e.message);
+    });
+}
+
+loadFromSheet();
 </script>
 </body>
 </html>
