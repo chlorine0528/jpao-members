@@ -953,36 +953,43 @@ layout();
   コンソールに名前を出して知らせる。
 */
 const SHEET_ID = "1dPR-8eSQmRAnFvSJ9siNmEUs9ZmVz_e6VpqktmCxDA8";
-/* 主データはフォーム回答タブ。ここにキーワード列があり、
-   新しい回答は自動で行が増えるので転記待ちが発生しない */
-const GID_MAIN  = "571669687";
-/* 「ひとこと」はこちらの一覧タブにしか無いので、名前で突き合わせて補う */
-const GID_NOTES = "0";
+/* シートはこの1枚だけ。ここにキーワード列があり、
+   新しい回答は自動で行が増えるので転記待ちが発生しない。
+   （以前あった「JPAOメンバー自己紹介一覧」タブは削除されている） */
+const GID_MAIN = "571669687";
 const sheetUrl = gid => "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
                         "/gviz/tq?tqx=out:json&headers=0&gid=" + gid;
 
 /*
-  見出しの文字列 → メンバーのキー。列の順番が変わっても名前で拾う。
-  2つのタブで見出しの書き方が違うので、両方を別名として持つ。
+  見出しの文字列 → メンバーのキー。
 
-  【重要】ここに挙げた見出しだけを取り込む。
-  回答タブには「メールアドレス」列があるが、対応表に無いので読み捨てられ、
-  画面には一切出ない。公開ページなので、この列を足さないこと。
+  完全一致で照合していたら、見出しが
+  「キーワード」→「キーワード（近いキーワードがあれば寄せるようにする）」
+  に変わっただけで列を見失い、全員がキーワードなし扱いになった。
+  見出しに補足を書き足すのは自然な運用なので、そこで壊れる作りが間違い。
+  いまは「その語を含むか」で照合する。2タブの書き方の違い
+  （「お名前を教えてください」／「お名前」）も同時に吸収できる。
+
+  【重要】ここに挙げた語を含む見出しだけを取り込む。
+  回答タブの「メールアドレス」はどの語にも当たらないので読み捨てられ、
+  画面には一切出ない。公開ページなので、この列を拾う語を足さないこと。
+  念のため NEVER_MAP で二重に弾いている。
 */
 const FIELD_MAP = [
-  [["お名前を教えてください", "お名前"], "name"],
-  [["お住まいの地域を教えてください", "お住まいの地域"], "area"],
-  [["お仕事・ご活動を教えてください", "お仕事・ご活動"], "work"],
-  [["趣味・関心事を教えてください", "趣味・関心事"], "hobby"],
-  [["あなたのことがわかるURLを教えてください", "あなたのことがわかるURL"], "url"],
-  [["コミュニティメンバーに「有償」なら提供できることを教えてください",
-    "「有償」なら提供できること"], "paid"],
-  [["コミュニティメンバーに「無償」でも提供できることを教えてください",
-    "「無償」でも提供できること"], "free"],
-  [["コミュニティに期待することを教えてください", "コミュニティに期待すること"], "expect"],
-  [["ひとこと"], "hitokoto"],
-  [["キーワード"], "tagsRaw"]
+  ["お名前",           "name"],
+  ["お住まいの地域",     "area"],
+  ["お仕事",           "work"],
+  ["趣味",             "hobby"],
+  ["URL",              "url"],
+  ["有償",             "paid"],
+  ["無償",             "free"],
+  ["期待",             "expect"],
+  ["ひとこと",          "hitokoto"],
+  ["キーワード",        "tagsRaw"]
 ];
+
+/* 個人情報の列は、たとえ上の語を含んでいても絶対に対応付けない */
+const NEVER_MAP = /メール|mail|電話|tel|住所|生年|氏名カナ/i;
 
 function tidy(s){
   if (typeof s !== "string") return "";
@@ -1011,10 +1018,13 @@ function parseSheet(text, requireTags){
   const header = rows[hi].map(tidy);
 
   const col = {};
-  FIELD_MAP.forEach(([labels, key]) => {
-    for (let n = 0; n < labels.length; n++){
-      const i = header.indexOf(labels[n]);
-      if (i >= 0){ col[key] = i; break; }
+  const upper = header.map(h => (h || "").toUpperCase());
+  FIELD_MAP.forEach(pair => {
+    const needle = pair[0].toUpperCase(), key = pair[1];
+    for (let i = 0; i < header.length; i++){
+      if (!header[i]) continue;
+      if (NEVER_MAP.test(header[i])) continue;      // 個人情報の列は拾わない
+      if (upper[i].indexOf(needle) >= 0){ col[key] = i; break; }
     }
   });
   if (col.name == null) throw new Error("「お名前」列が無い");
@@ -1058,29 +1068,23 @@ function applyMembers(fresh){
   }
 }
 
+/* 埋め込みデータが持っている「ひとこと」を名前で引き継ぐ。
+   シートは1枚に統合され「ひとこと」列が無くなったので、
+   すでに公開されている文を落とさないための繋ぎ。
+   シート側に「ひとこと」列を作ればそちらが優先される（FIELD_MAP に残してある） */
+const FALLBACK_NOTES = new Map(
+  FALLBACK_MEMBERS.filter(m => m.hitokoto).map(m => [m.name, m.hitokoto])
+);
+
 function loadFromSheet(){
-  Promise.all([
-    fetch(sheetUrl(GID_MAIN), { cache: "no-store" })
-      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); }),
-    // 「ひとこと」の補完。取れなくても本体の表示は続ける
-    fetch(sheetUrl(GID_NOTES), { cache: "no-store" })
-      .then(r => r.ok ? r.text() : null).catch(() => null)
-  ])
-    .then(pair => {
-      const text = pair[0], notesText = pair[1];
+  fetch(sheetUrl(GID_MAIN), { cache: "no-store" })
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+    .then(text => {
       const res = parseSheet(text, true);
 
-      // 一覧タブから「ひとこと」だけ名前で突き合わせて足す
-      if (notesText){
-        try {
-          const notes = parseSheet(notesText, false);
-          const byName = new Map();
-          notes.members.forEach(p => { if (p.hitokoto) byName.set(p.name, p.hitokoto); });
-          res.members.forEach(p => {
-            if (!p.hitokoto && byName.has(p.name)) p.hitokoto = byName.get(p.name);
-          });
-        } catch (e) { /* 補完は失敗しても無視 */ }
-      }
+      res.members.forEach(p => {
+        if (!p.hitokoto && FALLBACK_NOTES.has(p.name)) p.hitokoto = FALLBACK_NOTES.get(p.name);
+      });
 
       if (res.noTags.length){
         console.warn("[JPAO] キーワード列が空のため雲に出していません: "
